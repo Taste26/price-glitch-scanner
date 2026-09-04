@@ -1,27 +1,34 @@
-name: Price Glitch Scanner
-
-on:
-  schedule:
-    - cron: '*/20 * * * *'
-  workflow_dispatch:
-
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: pip install requests beautifulsoup4 lxml
-
-      - name: Run scanner
-        run: python scraper.py
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+PRODUCTS = [
+    # Apple
+    {"name": "Apple iPhone"},
+    {"name": "Apple MacBook"},
+    {"name": "Apple Mac mini"},
+    {"name": "Apple iPad"},
+    {"name": "Apple Watch"},
+    {"name": "Apple AirPods"},
+    
+    # Samsung
+    {"name": "Samsung Galaxy"},
+    {"name": "Samsung TV"},
+    {"name": "Samsung Galaxy Tab"},
+    {"name": "Samsung Galaxy Watch"},
+    
+    # Google
+    {"name": "Google Pixel"},
+    {"name": "Google Nest"},
+    
+    # Sony
+    {"name": "Sony TV"},
+    {"name": "Sony PlayStation"},
+    {"name": "Sony headphones"},
+    
+    # Microsoft
+    {"name": "Microsoft Surface"},
+    {"name": "Xbox"},
+    
+    # Autres
+    {"name": "Dell XPS"},
+    {"name": "Lenovo ThinkPad"},
+    {"name": "HP Spectre"},
+    {"name": "Asus ROG"},
+]
