@@ -9,33 +9,17 @@ import re
 # ⚙️ LISTE DES PRODUITS À SURVEILLER
 # ============================================
 PRODUCTS = [
-    # Apple
     {"name": "Apple iPhone"},
     {"name": "Apple MacBook"},
     {"name": "Apple iPad"},
     {"name": "Apple Watch"},
-    
-    # Samsung
     {"name": "Samsung Galaxy"},
     {"name": "Samsung TV"},
-    {"name": "Samsung Galaxy Tab"},
-    
-    # Google
     {"name": "Google Pixel"},
-    
-    # Sony
     {"name": "Sony PlayStation"},
-    {"name": "Sony TV"},
-    
-    # Microsoft
     {"name": "Microsoft Surface"},
-    {"name": "Xbox"},
-    
-    # Autres
     {"name": "Dell XPS"},
     {"name": "Lenovo ThinkPad"},
-    {"name": "HP Spectre"},
-    {"name": "Asus ROG"},
 ]
 
 # ============================================
@@ -44,7 +28,32 @@ PRODUCTS = [
 HISTORY_FILE = "price_history.json"
 
 # ============================================
-# 1. RECHERCHE SUR GOOGLE SHOPPING
+# 1. RECHERCHE SUR EBAY (LE PLUS FIABLE POUR LES ROBOTS)
+# ============================================
+def search_price_ebay(product_name):
+    if not product_name:
+        return None
+    url = f"https://www.ebay.fr/sch/i.html?_nkw={product_name.replace(' ', '+')}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    try:
+        response = requests.get(url, timeout=8, headers=headers)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # eBay utilise la classe "s-item__price"
+            price_elem = soup.find('span', class_='s-item__price')
+            if price_elem:
+                price_text = price_elem.text.strip()
+                # On extrait le premier prix (ex: "899,00 EUR" -> 899.00)
+                price_match = re.search(r'(\d+[\.,]\d+)', price_text)
+                if price_match:
+                    price_clean = price_match.group(1).replace(',', '.')
+                    return float(price_clean)
+    except Exception as e:
+        print(f"   ⚠️ Erreur eBay : {str(e)[:30]}")
+    return None
+
+# ============================================
+# 2. RECHERCHE SUR GOOGLE SHOPPING (TENTATIVE)
 # ============================================
 def search_price_google(product_name):
     if not product_name:
@@ -61,7 +70,6 @@ def search_price_google(product_name):
                 price_text = price_text.replace(',', '.')
                 if price_text:
                     return float(price_text)
-            # Fallback : cherche un prix dans le texte
             price_pattern = re.compile(r'(\d+[\.,]\d+)\s*€')
             all_text = soup.get_text()
             matches = price_pattern.findall(all_text)
@@ -73,7 +81,7 @@ def search_price_google(product_name):
     return None
 
 # ============================================
-# 2. RECHERCHE SUR LES SITES FRANÇAIS
+# 3. RECHERCHE SUR CDISCOUNT & FNAC
 # ============================================
 def search_price_cdiscount(product_name):
     url = f"https://www.cdiscount.com/recherche/{product_name.replace(' ', '-')}"
@@ -110,7 +118,7 @@ def search_price_fnac(product_name):
     return None
 
 # ============================================
-# 3. DÉTECTION DES ANOMALIES
+# 4. DÉTECTION DES ANOMALIES
 # ============================================
 def detect_anomaly(product_name, retailer, current_price, history_prices):
     if not history_prices or len(history_prices) < 2:
@@ -122,16 +130,23 @@ def detect_anomaly(product_name, retailer, current_price, history_prices):
     return False, 0
 
 # ============================================
-# 4. ENVOI D'ALERTE SUR TELEGRAM
+# 5. ENVOI SUR TELEGRAM (AVEC VÉRIFICATION)
 # ============================================
 def send_telegram_alert(message):
     token = os.environ.get('TELEGRAM_TOKEN')
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
-    if not token or not chat_id:
-        print("⚠️ Identifiants Telegram non configurés.")
+    # Vérification des secrets
+    if not token:
+        print("❌ TELEGRAM_TOKEN est VIDE ! Vérifie le secret sur GitHub.")
+        return
+    if not chat_id:
+        print("❌ TELEGRAM_CHAT_ID est VIDE ! Vérifie le secret sur GitHub.")
         return
     
+    print(f"🔑 Token chargé (longueur: {len(token)})")
+    print(f"🆔 Chat ID chargé (longueur: {len(str(chat_id))})")
+
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
     
@@ -140,15 +155,19 @@ def send_telegram_alert(message):
         if response.status_code == 200:
             print("✅ Alerte Telegram envoyée !")
         else:
-            print(f"❌ Erreur Telegram : {response.status_code}")
+            print(f"❌ Erreur Telegram : {response.status_code} - {response.text}")
     except Exception as e:
         print(f"❌ Erreur lors de l'envoi : {e}")
 
 # ============================================
-# 5. FONCTION PRINCIPALE
+# 6. FONCTION PRINCIPALE
 # ============================================
 def main():
     print(f"🕵️ Lancement du scan - {datetime.now().strftime('%H:%M:%S')}")
+    
+    # ENVOI D'UN MESSAGE DE TEST IMMÉDIAT POUR VÉRIFIER TELEGRAM
+    test_message = "🤖 *Bot en cours d'exécution...*\nJe vérifie la connexion."
+    send_telegram_alert(test_message)
     
     # Charger l'historique
     history = {}
@@ -166,19 +185,25 @@ def main():
         
         found_prices = []
         
-        # Recherche sur Google Shopping
+        # 1. eBay
+        price = search_price_ebay(name)
+        if price:
+            found_prices.append(("eBay", price))
+            print(f"   ✅ eBay : {price}€")
+        
+        # 2. Google Shopping
         price = search_price_google(name)
         if price:
             found_prices.append(("Google Shopping", price))
             print(f"   ✅ Google : {price}€")
         
-        # Recherche sur Cdiscount
+        # 3. Cdiscount
         price = search_price_cdiscount(name)
         if price:
             found_prices.append(("Cdiscount", price))
             print(f"   ✅ Cdiscount : {price}€")
         
-        # Recherche sur Fnac
+        # 4. Fnac
         price = search_price_fnac(name)
         if price:
             found_prices.append(("Fnac", price))
@@ -210,7 +235,6 @@ def main():
                 message += f"💰 Prix normal : ~{round(history[name][retailer][-2])}€\n"
                 message += f"🔥 Prix actuel : {price}€\n"
                 message += f"📉 Remise : {discount}%\n"
-                message += f"🔗 Lien : https://www.google.com/search?q={name.replace(' ', '+')}+prix"
                 print(f"🚨 ALERTE ! {discount}% chez {retailer}")
                 send_telegram_alert(message)
     
@@ -221,14 +245,7 @@ def main():
     print(f"\n✅ Scan terminé - {datetime.now().strftime('%H:%M:%S')}")
     print(f"📊 {len(PRODUCTS)} produits analysés.")
     
-    # ============================================
-    # ENVOI D'UN RÉCAPITULATIF MÊME SANS ALERTE
-    # ============================================
-    recap_message = f"✅ *Scan terminé avec succès !*\n"
-    recap_message += f"📊 {len(PRODUCTS)} produits analysés.\n"
-    recap_message += f"🕒 {datetime.now().strftime('%H:%M')}\n"
-    recap_message += f"🔍 Aucune anomalie majeure détectée pour l'instant.\n"
-    recap_message += f"🤖 Le robot est en ligne et surveille les prix."
+    recap_message = f"✅ *Scan terminé !*\n📊 {len(PRODUCTS)} produits analysés.\n🕒 {datetime.now().strftime('%H:%M')}"
     send_telegram_alert(recap_message)
 
 if __name__ == "__main__":
