@@ -3,23 +3,19 @@ import json
 import os
 from datetime import datetime
 from bs4 import BeautifulSoup
-import time
 import re
+import time
 
 # ============================================
-# ⚙️ CONFIGURATION : LISTE DES PRODUITS À SURVEILLER
+# ⚙️ LISTE DES PRODUITS À SURVEILLER
 # ============================================
-# 🔥 Remplace ces exemples par les vrais produits qui t'intéressent !
-# Pour chaque produit, mets son nom exact et son code EAN (si tu l'as).
-# Si tu n'as pas l'EAN, mets "EAN_INCONNU", le robot cherchera via Google.
-
+# 🔥 Le robot cherchera ces marques sur tous les sites
 PRODUCTS = [
-    {"name": "iPhone 16 Pro 256GB", "ean": "0190000000000"},
-    {"name": "Samsung Galaxy S25 Ultra", "ean": "8800000000000"},
-    {"name": "MacBook Pro M4 14", "ean": "0190000000001"},
-    {"name": "TV OLED Samsung 65", "ean": "0880000000000"},
-    {"name": "PlayStation 5", "ean": "0711719000000"},
-    {"name": "Montre Apple Watch Ultra 2", "ean": "0190000000002"},
+    {"name": "iPhone"},
+    {"name": "Mac mini"},
+    {"name": "MacBook"},
+    {"name": "iPad"},
+    {"name": "Samsung Galaxy"}
 ]
 
 # ============================================
@@ -28,151 +24,62 @@ PRODUCTS = [
 HISTORY_FILE = "price_history.json"
 
 # ============================================
-# 1. FONCTIONS POUR CHAQUE ENSEIGNE
+# 1. RECHERCHE SUR GOOGLE SHOPPING (LA PLUS FIABLE SANS EAN)
 # ============================================
 
-def get_price_cdiscount(ean):
-    """Cdiscount - API publique"""
-    if not ean or ean == "EAN_INCONNU":
+def search_price_google(product_name):
+    """Recherche le prix d'un produit sur Google Shopping"""
+    if not product_name:
         return None
-    url = f"https://www.cdiscount.com/api/product/search?q={ean}"
+    
+    # On cherche le produit en France
+    search_url = f"https://www.google.com/search?q={product_name.replace(' ', '+')}+prix+France&tbm=shop"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
     try:
-        response = requests.get(url, timeout=6)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('products'):
-                price = data['products'][0].get('price')
-                return float(price) if price else None
-    except:
-        pass
-    return None
-
-def get_price_fnac(ean):
-    """Fnac - API publique"""
-    if not ean or ean == "EAN_INCONNU":
-        return None
-    url = f"https://api.fnac.com/v1/product/{ean}?format=json"
-    try:
-        response = requests.get(url, timeout=6)
-        if response.status_code == 200:
-            data = response.json()
-            price = data.get('price')
-            return float(price) if price else None
-    except:
-        pass
-    return None
-
-def get_price_darty(ean):
-    """Darty - Scraping HTML"""
-    if not ean or ean == "EAN_INCONNU":
-        return None
-    url = f"https://www.darty.com/nav/recherche/{ean}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(url, timeout=6, headers=headers)
+        response = requests.get(search_url, timeout=8, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='price')
-            if not price_elem:
-                price_elem = soup.find('meta', {'property': 'product:price:amount'})
-            if price_elem:
-                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
-                price_text = price_text.replace(',', '.')
-                return float(price_text)
-    except:
-        pass
-    return None
-
-def get_price_boulanger(ean):
-    """Boulanger - Scraping HTML"""
-    if not ean or ean == "EAN_INCONNU":
-        return None
-    url = f"https://www.boulanger.com/resultats?tr={ean}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(url, timeout=6, headers=headers)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='price')
-            if price_elem:
-                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
-                price_text = price_text.replace(',', '.')
-                return float(price_text)
-    except:
-        pass
-    return None
-
-def get_price_ldlc(ean):
-    """LDLC - Scraping HTML"""
-    if not ean or ean == "EAN_INCONNU":
-        return None
-    url = f"https://www.ldlc.com/recherche/{ean}/"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(url, timeout=6, headers=headers)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='price')
-            if price_elem:
-                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
-                price_text = price_text.replace(',', '.')
-                return float(price_text)
-    except:
-        pass
-    return None
-
-def get_price_ruecommerce(ean):
-    """Rue du Commerce - Scraping HTML"""
-    if not ean or ean == "EAN_INCONNU":
-        return None
-    url = f"https://www.rueducommerce.fr/recherche/{ean}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(url, timeout=6, headers=headers)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='price')
-            if price_elem:
-                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
-                price_text = price_text.replace(',', '.')
-                return float(price_text)
-    except:
-        pass
-    return None
-
-def get_price_backmarket(ean):
-    """Back Market - Scraping"""
-    if not ean or ean == "EAN_INCONNU":
-        return None
-    url = f"https://www.backmarket.fr/search?q={ean}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(url, timeout=6, headers=headers)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', {'data-testid': 'price-amount'})
-            if price_elem:
-                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
-                price_text = price_text.replace(',', '.')
-                return float(price_text)
-    except:
-        pass
-    return None
-
-def get_price_amazon_google(name):
-    """Amazon - On passe par Google Shopping (car Amazon bloque les scrapers)"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+Amazon+prix&tbm=shop"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    try:
-        response = requests.get(search_url, timeout=6, headers=headers)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # Recherche du prix dans les résultats Google Shopping
+            
+            # Méthode 1 : La classe classique de Google Shopping
             price_elem = soup.find('span', class_='a8Pemb')
-            if not price_elem:
-                price_elem = soup.find('b', string=re.compile(r'[\d,.]+\s*€'))
+            if price_elem:
+                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
+                price_text = price_text.replace(',', '.')
+                if price_text:
+                    return float(price_text)
+            
+            # Méthode 2 : Recherche d'un prix dans une balise <b> ou <span>
+            price_pattern = re.compile(r'(\d+[\.,]\d+)\s*€')
+            all_text = soup.get_text()
+            matches = price_pattern.findall(all_text)
+            if matches:
+                # Prend le premier prix trouvé
+                first_price = matches[0].replace(',', '.')
+                return float(first_price)
+                
+    except Exception as e:
+        print(f"   ⚠️ Erreur Google : {str(e)[:50]}")
+    
+    return None
+
+# ============================================
+# 2. RECHERCHE SUR LES SITES AVEC LE NOM DU PRODUIT
+# (Pour Cdiscount, Fnac, etc. sans EAN, on passe par leur moteur de recherche)
+# ============================================
+
+def search_price_cdiscount(product_name):
+    """Cdiscount - Recherche par nom"""
+    url = f"https://www.cdiscount.com/recherche/{product_name.replace(' ', '-')}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    try:
+        response = requests.get(url, timeout=6, headers=headers)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Recherche du premier prix affiché
+            price_elem = soup.find('span', class_='price')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
@@ -182,122 +89,142 @@ def get_price_amazon_google(name):
         pass
     return None
 
-def get_price_apple(name):
-    """Apple - Recherche via Google Shopping"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+Apple+Store+prix&tbm=shop"
+def search_price_fnac(product_name):
+    """Fnac - Recherche par nom"""
+    url = f"https://www.fnac.com/recherche/resultats.do?text={product_name.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        response = requests.get(search_url, timeout=6, headers=headers)
+        response = requests.get(url, timeout=6, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='a8Pemb')
+            price_elem = soup.find('span', class_='price')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
-                return float(price_text)
+                if price_text:
+                    return float(price_text)
     except:
         pass
     return None
 
-def get_price_samsung(name):
-    """Samsung - Recherche via Google Shopping"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+Samsung+Store+prix&tbm=shop"
+def search_price_darty(product_name):
+    """Darty - Recherche par nom"""
+    url = f"https://www.darty.com/nav/recherche/{product_name.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        response = requests.get(search_url, timeout=6, headers=headers)
+        response = requests.get(url, timeout=6, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='a8Pemb')
+            price_elem = soup.find('span', class_='price')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
-                return float(price_text)
+                if price_text:
+                    return float(price_text)
     except:
         pass
     return None
 
-def get_price_orange(name):
-    """Orange - Via Google Shopping"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+Orange+prix+smartphone&tbm=shop"
+def search_price_boulanger(product_name):
+    """Boulanger - Recherche par nom"""
+    url = f"https://www.boulanger.com/resultats?tr={product_name.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        response = requests.get(search_url, timeout=6, headers=headers)
+        response = requests.get(url, timeout=6, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='a8Pemb')
+            price_elem = soup.find('span', class_='price')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
-                return float(price_text)
+                if price_text:
+                    return float(price_text)
     except:
         pass
     return None
 
-def get_price_sfr(name):
-    """SFR - Via Google Shopping"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+SFR+prix&tbm=shop"
+def search_price_ldlc(product_name):
+    """LDLC - Recherche par nom"""
+    url = f"https://www.ldlc.com/recherche/{product_name.replace(' ', '+')}/"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        response = requests.get(search_url, timeout=6, headers=headers)
+        response = requests.get(url, timeout=6, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='a8Pemb')
+            price_elem = soup.find('span', class_='price')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
-                return float(price_text)
+                if price_text:
+                    return float(price_text)
     except:
         pass
     return None
 
-def get_price_bouygues(name):
-    """Bouygues - Via Google Shopping"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+Bouygues+prix&tbm=shop"
+def search_price_amazon(product_name):
+    """Amazon - Recherche par nom (via une recherche simple)"""
+    url = f"https://www.amazon.fr/s?k={product_name.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        response = requests.get(search_url, timeout=6, headers=headers)
+        response = requests.get(url, timeout=6, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            price_elem = soup.find('span', class_='a8Pemb')
+            # Amazon utilise souvent une classe 'a-price-whole'
+            price_elem = soup.find('span', class_='a-price-whole')
+            if price_elem:
+                price_text = re.sub(r'[^\d]', '', price_elem.text.strip())
+                if price_text:
+                    return float(price_text)
+            # Fallback
+            price_elem = soup.find('span', class_='a-offscreen')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
-                return float(price_text)
+                if price_text:
+                    return float(price_text)
     except:
         pass
     return None
 
-def get_price_google_global(name):
-    """Recherche globale sur Google Shopping (pour Auchan, Carrefour, Leclerc, etc.)"""
-    if not name:
-        return None
-    search_url = f"https://www.google.com/search?q={name.replace(' ', '+')}+prix+France&tbm=shop"
+def search_price_apple(product_name):
+    """Apple - Recherche par nom (via Google Shopping car le site Apple est verrouillé)"""
+    # On utilise Google Shopping spécifiquement pour Apple
+    url = f"https://www.google.com/search?q={product_name.replace(' ', '+')}+Apple+Store+prix&tbm=shop"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     try:
-        response = requests.get(search_url, timeout=6, headers=headers)
+        response = requests.get(url, timeout=6, headers=headers)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
             price_elem = soup.find('span', class_='a8Pemb')
             if price_elem:
                 price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
                 price_text = price_text.replace(',', '.')
-                return float(price_text)
+                if price_text:
+                    return float(price_text)
+    except:
+        pass
+    return None
+
+def search_price_samsung(product_name):
+    """Samsung - Recherche par nom (via Google Shopping)"""
+    url = f"https://www.google.com/search?q={product_name.replace(' ', '+')}+Samsung+Store+prix&tbm=shop"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    try:
+        response = requests.get(url, timeout=6, headers=headers)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            price_elem = soup.find('span', class_='a8Pemb')
+            if price_elem:
+                price_text = re.sub(r'[^\d,.]', '', price_elem.text.strip())
+                price_text = price_text.replace(',', '.')
+                if price_text:
+                    return float(price_text)
     except:
         pass
     return None
 
 # ============================================
-# 2. DÉTECTION DES ANOMALIES (ERREURS DE PRIX)
+# 3. DÉTECTION DES ANOMALIES (ERREURS DE PRIX)
 # ============================================
 
 def detect_anomaly(product_name, retailer, current_price, history_prices):
@@ -306,14 +233,14 @@ def detect_anomaly(product_name, retailer, current_price, history_prices):
     
     avg_price = sum(history_prices) / len(history_prices)
     
-    # Si le prix actuel est inférieur à 80% de la moyenne → Erreur de prix !
+    # 🔥 Détection d'erreur de prix (>= 80% de remise)
     if current_price < (avg_price * 0.80):
         discount = round(((avg_price - current_price) / avg_price) * 100)
         return True, discount
     return False, 0
 
 # ============================================
-# 3. ENVOI D'ALERTE SUR TELEGRAM
+# 4. ENVOI D'ALERTE SUR TELEGRAM
 # ============================================
 
 def send_telegram_alert(message):
@@ -321,7 +248,7 @@ def send_telegram_alert(message):
     chat_id = os.environ.get('TELEGRAM_CHAT_ID')
     
     if not token or not chat_id:
-        print("⚠️ Identifiants Telegram non configurés.")
+        print("⚠️ Identifiants Telegram non configurés. Ajoute les secrets sur GitHub.")
         return
     
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -337,13 +264,13 @@ def send_telegram_alert(message):
         print(f"❌ Erreur lors de l'envoi : {e}")
 
 # ============================================
-# 4. FONCTION PRINCIPALE
+# 5. FONCTION PRINCIPALE
 # ============================================
 
 def main():
-    print(f"🕵️ Lancement du scan complet - {datetime.now().strftime('%H:%M:%S')}")
+    print(f"🕵️ Lancement du scan - {datetime.now().strftime('%H:%M:%S')}")
     
-    # Charger l'historique des prix
+    # Charger l'historique
     history = {}
     if os.path.exists(HISTORY_FILE):
         try:
@@ -352,92 +279,70 @@ def main():
         except:
             history = {}
     
-    # Pour chaque produit dans la liste
+    # Pour chaque produit
     for product in PRODUCTS:
         name = product['name']
-        ean = product.get('ean', '')
-        
         print(f"\n🔍 Recherche de : {name}")
         
-        # Liste pour stocker les prix trouvés
         found_prices = []
         
-        # ---------- 1. SITES AVEC API PUBLIQUE ----------
-        price = get_price_cdiscount(ean)
+        # --- 1. Google Shopping (le plus fiable sans EAN) ---
+        price = search_price_google(name)
+        if price:
+            found_prices.append(("Google Shopping", price))
+            print(f"   ✅ Google : {price}€")
+        
+        # --- 2. Cdiscount ---
+        price = search_price_cdiscount(name)
         if price:
             found_prices.append(("Cdiscount", price))
             print(f"   ✅ Cdiscount : {price}€")
         
-        price = get_price_fnac(ean)
+        # --- 3. Fnac ---
+        price = search_price_fnac(name)
         if price:
             found_prices.append(("Fnac", price))
             print(f"   ✅ Fnac : {price}€")
         
-        # ---------- 2. SCRAPING DES SITES FRANÇAIS ----------
-        price = get_price_darty(ean)
+        # --- 4. Darty ---
+        price = search_price_darty(name)
         if price:
             found_prices.append(("Darty", price))
             print(f"   ✅ Darty : {price}€")
         
-        price = get_price_boulanger(ean)
+        # --- 5. Boulanger ---
+        price = search_price_boulanger(name)
         if price:
             found_prices.append(("Boulanger", price))
             print(f"   ✅ Boulanger : {price}€")
         
-        price = get_price_ldlc(ean)
+        # --- 6. LDLC ---
+        price = search_price_ldlc(name)
         if price:
             found_prices.append(("LDLC", price))
             print(f"   ✅ LDLC : {price}€")
         
-        price = get_price_ruecommerce(ean)
-        if price:
-            found_prices.append(("Rue du Commerce", price))
-            print(f"   ✅ Rue du Commerce : {price}€")
-        
-        price = get_price_backmarket(ean)
-        if price:
-            found_prices.append(("Back Market", price))
-            print(f"   ✅ Back Market : {price}€")
-        
-        # ---------- 3. GRANDES MARQUES VIA GOOGLE SHOPPING ----------
-        price = get_price_amazon_google(name)
+        # --- 7. Amazon ---
+        price = search_price_amazon(name)
         if price:
             found_prices.append(("Amazon", price))
             print(f"   ✅ Amazon : {price}€")
         
-        price = get_price_apple(name)
-        if price:
-            found_prices.append(("Apple", price))
-            print(f"   ✅ Apple : {price}€")
+        # --- 8. Apple (spécifique) ---
+        if "iPhone" in name or "Mac" in name or "iPad" in name:
+            price = search_price_apple(name)
+            if price:
+                found_prices.append(("Apple", price))
+                print(f"   ✅ Apple : {price}€")
         
-        price = get_price_samsung(name)
-        if price:
-            found_prices.append(("Samsung", price))
-            print(f"   ✅ Samsung : {price}€")
+        # --- 9. Samsung (spécifique) ---
+        if "Samsung" in name:
+            price = search_price_samsung(name)
+            if price:
+                found_prices.append(("Samsung", price))
+                print(f"   ✅ Samsung : {price}€")
         
-        # ---------- 4. OPÉRATEURS TÉLECOM ----------
-        price = get_price_orange(name)
-        if price:
-            found_prices.append(("Orange", price))
-            print(f"   ✅ Orange : {price}€")
-        
-        price = get_price_sfr(name)
-        if price:
-            found_prices.append(("SFR", price))
-            print(f"   ✅ SFR : {price}€")
-        
-        price = get_price_bouygues(name)
-        if price:
-            found_prices.append(("Bouygues", price))
-            print(f"   ✅ Bouygues : {price}€")
-        
-        # ---------- 5. RECHERCHE GLOBALE (Auchan, Carrefour, Leclerc, etc.) ----------
-        price = get_price_google_global(name)
-        if price:
-            found_prices.append(("Google Shopping (Global)", price))
-            print(f"   ✅ Google Shopping : {price}€")
-        
-        # ---------- ANALYSE DES PRIX TROUVÉS ----------
+        # --- Analyse des prix ---
         if not found_prices:
             print(f"   ❌ Aucun prix trouvé pour {name}")
             continue
@@ -446,17 +351,15 @@ def main():
         if name not in history:
             history[name] = {}
         
-        # Pour chaque prix trouvé, vérifier s'il y a une anomalie
+        # Vérifier chaque prix
         for retailer, price in found_prices:
             if retailer not in history[name]:
                 history[name][retailer] = []
             
             history[name][retailer].append(price)
-            # Garder seulement les 10 derniers prix
             if len(history[name][retailer]) > 10:
                 history[name][retailer].pop(0)
             
-            # Détecter une anomalie
             is_anomaly, discount = detect_anomaly(name, retailer, price, history[name][retailer])
             
             if is_anomaly:
@@ -467,7 +370,7 @@ def main():
                 message += f"🔥 Prix actuel : {price}€\n"
                 message += f"📉 Remise : {discount}%\n"
                 message += f"🔗 Lien : https://www.google.com/search?q={name.replace(' ', '+')}+prix"
-                print(f"🚨 ALERTE ! {discount}% de remise chez {retailer}")
+                print(f"🚨 ALERTE ! {discount}% chez {retailer}")
                 send_telegram_alert(message)
     
     # Sauvegarder l'historique
